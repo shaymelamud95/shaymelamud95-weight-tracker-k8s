@@ -1,0 +1,104 @@
+trigger:
+- master
+- feature/*
+
+pool: default
+
+variables: 
+- group: "secrets"
+
+stages:
+# Continuous Integration Process
+- stage: CI
+  jobs:
+  - job: BuildAndPushDocker
+    workspace: 
+      clean: all
+    steps:
+    - script: |
+        if ! command -v docker;  then
+          curl -fsSL https://get.docker.com -o get-docker.sh --yes;
+          sh get-docker.sh
+          echo $(docker -v)
+        fi
+      displayName: install_Docker
+    # - task: DockerInstaller@0
+    #   inputs:
+    #     dockerVersion: '17.09.0-ce'
+
+    - script: |
+        if $(docker images $(registry_url)/k8s -q); then
+          docker rmi $(docker images $(registry_url)/k8s -q)
+        fi
+      displayName: remove old and unused Docker images
+
+    - script: |
+        sudo docker login $(registry_url) -u $(registry_username) -p $(registry_password)
+      displayName: log in to acr
+
+    - script: |
+        sudo docker build -t $(registry_url)/k8s:latest .
+      displayName: docker build the img
+
+    - script: |
+        sudo docker push $(registry_url)/k8s:latest
+      condition: and(succeeded(), eq(variables['build.sourceBranch'], 'refs/heads/master'))
+      displayName: Push image
+
+# Continuous Deployment Process for Staging Environment
+- stage: DeployToStaging
+  condition: and(succeeded(), eq(variables['build.sourceBranch'], 'refs/heads/master'))
+  variables:
+  - group: secrets
+  jobs:
+  - deployment: staging
+    displayName: Deploy to Staging
+    environment: 'stg'
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          # - script: |
+          #     sudo apt-get update
+          #     sudo apt-get install -y apt-transport-https ca-certificates curl
+          #     sudo curl -fsSLo /usr/share/keyrings/kubernetes-archive-keyring.gpg https://packages.cloud.google.com/apt/doc/apt-key.gpg
+          #     echo "deb [signed-by=/usr/share/keyrings/kubernetes-archive-keyring.gpg] https://apt.kubernetes.io/ kubernetes-xenial main" | sudo tee /etc/apt/sources.list.d/kubernetes.list
+          #     sudo apt-get update
+          #     sudo apt-get install -y kubectl
+          #   displayName: install k8s
+          
+          # - script: |
+          #     curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
+          #   displayName: install az
+              
+          # - script: |
+          #     az account set --subscription 47b9083b-dde4-4cdb-8efe-8943737a3b4b
+          #     az aks get-credentials --resource-group k8s --name k8s-cluster
+          #   displayName: log in to k8s cluster
+
+          - script: |
+              kubectl delete secret env
+              kubectl create secret generic env \
+              --from-literal=host=$(host) \
+              --from-literal=okta_client_id=$(okta_client_id) \
+              --from-literal=okta_client_secret=$(okta_client_secret) \
+              --from-literal=okta_url=$(okta_url) \
+              --from-literal=pg_password=$(pg_password) \
+              --from-literal=pg_username=$(pg_username) \
+              --from-literal=pghost=$(pghost) \
+              --from-literal=PORT=$(PORT) \
+              --from-literal=COOKIE_ENCRYPT_PWD=$(COOKIE_ENCRYPT_PWD) \
+              --from-literal=HOST_URL=$(HOST_URL)
+            displayName: create secret
+              
+          - script: |
+              kubectl create secret docker-registry regcred --docker-server=$(registry_url) --docker-username=$(registry_username) --docker-password=$(registry_password)
+              kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.2.0/deploy/static/provider/cloud/deploy.yaml
+              kubectl apply -f ./Deployment.yaml
+              kubectl apply -f ./LB.yaml
+              kubectl apply -f ./job.yaml
+              kubectl apply -f ./Ingress.yaml
+              kubectl apply -f ./db-deployment.yaml
+              kubectl apply -f ./db-service.yaml
+            displayName: apply yamls
+

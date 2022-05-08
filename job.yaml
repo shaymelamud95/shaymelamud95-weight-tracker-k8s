@@ -1,0 +1,66 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: pi
+spec:
+  template:
+    spec:
+      imagePullSecrets:
+        - name: regcred
+      containers:
+      - name: pi
+        image: shayregistryweighttracker.azurecr.io/k8s
+        command: ["sleep 15","npm run initdb"]
+        env:
+        - name: PGHOST
+          valueFrom:
+            secretKeyRef:
+              name: env
+              key: pghost
+        - name: PGUSERNAME
+          valueFrom:
+            secretKeyRef:
+              name: env
+              key: pg_username
+        - name: PGPASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: env
+              key: pg_password
+        - name: OKTA_ORG_URL
+          valueFrom:
+            secretKeyRef:
+              name: env
+              key: okta_url
+        - name: OKTA_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: env
+              key: okta_client_secret
+        - name: OKTA_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              name: env
+              key: okta_client_id
+        - name: PORT
+          valueFrom:
+            secretKeyRef:
+              name: env
+              key: PORT
+        - name: COOKIE_ENCRYPT_PWD
+          valueFrom:
+            secretKeyRef:
+              name: env
+              key: COOKIE_ENCRYPT_PWD
+        - name: HOST
+          valueFrom:
+            secretKeyRef:
+              name: env
+              key: host
+        - name: HOST_URL
+          valueFrom:
+            secretKeyRef:
+              name: env
+              key: HOST_URL
+      restartPolicy: Never
+  backoffLimit: 4
